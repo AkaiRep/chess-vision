@@ -1,7 +1,7 @@
 """FastAPI application: receives screenshots from the client.
 
-Stage 1: authenticate, validate the image, store it in the inbox, reply with its size.
-Later stages plug board detection, recognition and the engine in here.
+Pipeline so far: authenticate -> validate & store the image -> find the board.
+Recognition, the engine and the UI are plugged in by the next stages.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
+from server.board_locator import BoardLocator
 from server.inbox import Inbox
 from server.pairing import Pairing
 from shared.config import ServerConfig
@@ -52,6 +53,7 @@ def create_app(cfg: ServerConfig) -> FastAPI:
     max_bytes = int(cfg.max_upload_mb * 1024 * 1024)
     inbox = Inbox(cfg.inbox_dir, cfg.keep_inbox)
     pairing = Pairing(cfg.state_file, cfg.token, cfg.pairing_window_s)
+    locator = BoardLocator()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -115,6 +117,18 @@ def create_app(cfg: ServerConfig) -> FastAPI:
             "received %dx%d %s (%d KB) from %s -> %s",
             w, h, content_type, len(data) // 1024, _peer(request), saved.name,
         )
-        return {"status": "received", "width": w, "height": h, "file": saved.name}
+        board = locator.locate(img)
+        if board is None:
+            log.warning("no chess board found on %s", saved.name)
+            return {"status": "no_board", "width": w, "height": h, "file": saved.name}
+        r = board.rect
+        log.info("board at x=%d y=%d %dx%d%s", r.x, r.y, r.w, r.h, " (cached)" if board.from_cache else "")
+        return {
+            "status": "board_found",
+            "width": w,
+            "height": h,
+            "file": saved.name,
+            "board": {"x": r.x, "y": r.y, "w": r.w, "h": r.h, "cached": board.from_cache},
+        }
 
     return app

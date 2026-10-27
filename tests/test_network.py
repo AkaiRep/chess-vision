@@ -139,3 +139,12 @@ def test_config_unknown_key(tmp_path: Path) -> None:
 )
 def test_hotkey_parsing(spec: str, expected: str) -> None:
     assert to_pynput(spec) == expected
+
+
+def test_analyze_finds_board(client: TestClient, token: str) -> None:
+    body = (Path(__file__).parent.parent / "samples" / "full_screen_start.png").read_bytes()
+    first = post(client, body, token).json()
+    assert first["status"] == "board_found"
+    assert (first["board"]["x"], first["board"]["y"], first["board"]["w"]) == (396, 153, 808)
+    assert post(client, body, token).json()["board"]["cached"] is True
+    assert post(client, png_bytes(), token).json()["status"] == "no_board"
