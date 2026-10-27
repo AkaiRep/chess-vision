@@ -1,0 +1,24 @@
+# OPTIONAL. Nothing needs to be configured: the client finds the server in the LAN and pairs
+# with it automatically. Copy to config.toml only to override a default below.
+
+[client]
+# server_url = "http://192.168.1.50:8765"  # fixed address instead of auto-discovery
+# token = ""                              # fixed secret instead of auto-pairing (must match server)
+hotkey = "F8"                    # e.g. "F8", "ctrl+shift+s"
+select_region_hotkey = "ctrl+F8" # select capture area with the mouse (remembered)
+monitor = 1                      # 1 = primary monitor, 2 = second, 0 = all together
+use_saved_region = true          # capture the remembered area instead of the whole monitor
+image_format = "png"             # "png" (lossless, recommended) or "jpeg" (needs Pillow)
+jpeg_quality = 90
+timeout_s = 15
+sound = true                     # short beep on success / error
+
+[server]
+host = "0.0.0.0"
+port = 8765
+# token = ""                     # fixed secret instead of the generated one
+pairing_window_s = 600           # new clients may pair this many seconds after server start
+max_upload_mb = 25
+inbox_dir = "server/inbox"       # received screenshots are saved here for debugging
+keep_inbox = 50
+mdns = true                      # announce the server in the local network

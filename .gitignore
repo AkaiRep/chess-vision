@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+config.toml
+client_state.json
+server_state.json
+logs/
+server/inbox/
+data/templates/
+debug_out/
