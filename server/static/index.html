@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chess-vision</title>
+<style>
+  :root {
+    --bg: #262421; --panel: #312e2b; --panel-2: #3c3934; --text: #f0ede8; --muted: #a8a49c;
+    --accent: #81b64c; --accent-dark: #5d8a35; --warn-bg: #4a3f1c; --warn: #f2c14e;
+    --err-bg: #4d2522; --err: #ff7b6e; --blue: #6ea0ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 20px; background: var(--panel); }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; }
+  #conn { width: 10px; height: 10px; border-radius: 50%; background: var(--err); }
+  #conn.on { background: var(--accent); }
+  #updated { margin-left: auto; color: var(--muted); font-size: 13px; }
+  main { display: grid; grid-template-columns: minmax(0, 680px) minmax(300px, 440px); gap: 20px;
+         padding: 20px; justify-content: center; }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); padding: 12px 16px; } }
+
+  .board-wrap { display: flex; gap: 10px; align-items: stretch; }
+  #evalbar { position: relative; width: 26px; flex: none; border-radius: 4px; overflow: hidden;
+             background: #403d39; }
+  #evalfill { position: absolute; left: 0; right: 0; background: #f4f4f0; transition: height .4s ease; }
+  #evaltext { position: absolute; left: 0; right: 0; font-size: 10.5px; font-weight: 700; text-align: center;
+              writing-mode: horizontal-tb; padding: 3px 0; }
+  #board { flex: 1; min-width: 0; aspect-ratio: 1; background: var(--panel); border-radius: 4px;
+           display: grid; place-items: center; color: var(--muted); text-align: center; padding: 0; }
+  #board svg { width: 100%; height: auto; display: block; border-radius: 4px; }
+
+  .card { background: var(--panel); border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+  #score { font-size: 34px; font-weight: 750; letter-spacing: -.5px; }
+  #best { font-size: 18px; margin-top: 2px; }
+  #turn { color: var(--muted); margin-top: 6px; font-size: 14px; }
+  .lines { list-style: none; margin: 0; padding: 0; }
+  .lines li { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--panel-2); align-items: baseline; }
+  .lines li:first-child { border-top: none; }
+  .badge { flex: none; min-width: 58px; text-align: center; font-weight: 700; font-size: 13px;
+           border-radius: 4px; padding: 2px 6px; background: var(--panel-2); }
+  .lines li:nth-child(1) .badge { background: var(--accent-dark); }
+  .pv { color: var(--muted); font-size: 14px; word-break: break-word; }
+  .pv b { color: var(--text); }
+  .msg { border-radius: 6px; padding: 9px 12px; margin-bottom: 10px; font-size: 14px; }
+  .msg.warn { background: var(--warn-bg); color: var(--warn); }
+  .msg.err { background: var(--err-bg); color: var(--err); }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: inherit; font-weight: 600; color: var(--text); background: var(--panel-2); border: 0;
+           border-radius: 6px; padding: 9px 14px; cursor: pointer; }
+  button:hover { background: #4a463f; }
+  button:disabled { opacity: .5; cursor: default; }
+  #fenrow { display: flex; gap: 8px; margin-top: 12px; }
+  #fen { flex: 1; min-width: 0; font: 12.5px ui-monospace, Menlo, Consolas, monospace; color: var(--text);
+         background: var(--bg); border: 1px solid var(--panel-2); border-radius: 6px; padding: 7px 9px; }
+  #preview { width: 100%; border-radius: 6px; display: block; }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <span id="conn" title="соединение с сервером"></span>
+  <h1>chess-vision</h1>
+  <span id="updated"></span>
+</header>
+<main>
+  <section>
+    <div class="board-wrap">
+      <div id="evalbar"><div id="evalfill"></div><div id="evaltext"></div></div>
+      <div id="board">Нажмите F8 на Windows,<br>чтобы отправить скриншот</div>
+    </div>
+  </section>
+  <aside>
+    <div class="card">
+      <div id="score">—</div>
+      <div id="best"></div>
+      <div id="turn"></div>
+    </div>
+    <div id="messages"></div>
+    <div class="card hidden" id="linescard">
+      <div class="label">Варианты</div>
+      <ul class="lines" id="lines"></ul>
+    </div>
+    <div class="card">
+      <div class="buttons">
+        <button id="btn-flip" title="Если автоопределение стороны ошиблось">Перевернуть доску</button>
+        <button id="btn-turn">Сменить сторону хода</button>
+        <button id="btn-calib" title="Скриншот начальной позиции → новые шаблоны фигур">Перекалибровать</button>
+      </div>
+      <div id="fenrow">
+        <input id="fen" readonly placeholder="FEN">
+        <button id="btn-copy">Копировать</button>
+      </div>
+    </div>
+    <div class="card hidden" id="previewcard">
+      <div class="label">Скриншот</div>
+      <img id="preview" alt="последний скриншот">
+    </div>
+  </aside>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let state = null;
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+}
+
+function renderEval(s) {
+  const bar = $("evalbar"), fill = $("evalfill"), text = $("evaltext");
+  const whiteBottom = s.my_color !== "чёрные";
+  const share = s.eval ? s.eval.white_share : 0.5;
+  fill.style.height = (share * 100) + "%";
+  fill.style.top = whiteBottom ? "auto" : "0";
+  fill.style.bottom = whiteBottom ? "0" : "auto";
+  text.textContent = s.eval ? s.eval.text.replace("+", "") : "";
+  const whiteAhead = share >= 0.5;
+  // print the number inside the side that is ahead
+  const atBottom = whiteAhead === whiteBottom;
+  text.style.top = atBottom ? "auto" : "0";
+  text.style.bottom = atBottom ? "0" : "auto";
+  text.style.color = whiteAhead ? "#262421" : "#f4f4f0";
+  bar.title = s.eval ? "Оценка (с точки зрения белых): " + s.eval.text : "";
+}
+
+function render(s) {
+  state = s;
+  $("updated").textContent = s.time ? "обновлено " + s.time : "";
+  $("board").innerHTML = s.svg || esc(s.message || "");
+  const ok = s.status === "ok";
+  $("score").textContent = ok && s.eval ? s.eval.text : (s.status === "game_over" ? "Конец" : "—");
+  $("best").innerHTML = ok && s.lines.length ? "Лучший ход: <b>" + esc(s.lines[0].san) + "</b>"
+                                            : esc(s.status === "ok" ? "" : (s.message || ""));
+  $("turn").textContent = s.turn ? `Ход: ${s.turn}${s.my_turn ? " (ваш)" : " (соперника)"} · вы играете за ${s.my_color}` +
+                                   (s.orientation === "pieces" ? " (определено по фигурам)" : "") +
+                                   (s.orientation === "manual" ? " (вручную)" : "") : "";
+  const msgs = [];
+  for (const e of s.errors || []) msgs.push(`<div class="msg err">${esc(e)}</div>`);
+  for (const w of s.warnings || []) msgs.push(`<div class="msg warn">${esc(w)}</div>`);
+  $("messages").innerHTML = msgs.join("");
+  const lines = s.lines || [];
+  $("linescard").classList.toggle("hidden", !lines.length);
+  $("lines").innerHTML = lines.map((l) => {
+    const [first, ...rest] = l.pv.split(" ");
+    return `<li><span class="badge">${esc(l.score)}</span><span class="pv"><b>${esc(first)}</b> ${esc(rest.join(" "))}</span></li>`;
+  }).join("");
+  $("fen").value = s.fen || "";
+  $("previewcard").classList.toggle("hidden", !s.preview);
+  if (s.preview) $("preview").src = s.preview;
+  const hasPos = !!s.fen;
+  $("btn-flip").disabled = $("btn-turn").disabled = !hasPos;
+  renderEval(s);
+}
+
+async function post(path, confirmText) {
+  if (confirmText && !confirm(confirmText)) return;
+  const buttons = document.querySelectorAll("button");
+  buttons.forEach((b) => (b.disabled = true));
+  try {
+    const r = await fetch(path, {method: "POST"});
+    const body = await r.json();
+    if (!r.ok) alert(body.detail || ("Ошибка " + r.status));
+    else render(body);
+  } catch (e) {
+    alert("Сервер недоступен");
+  } finally {
+    buttons.forEach((b) => (b.disabled = false));
+    if (state) render(state);
+  }
+}
+
+$("btn-flip").onclick = () => post("/api/flip");
+$("btn-turn").onclick = () => post("/api/turn");
+$("btn-calib").onclick = () => post("/api/recalibrate",
+  "Перекалибровка берёт ПОСЛЕДНИЙ скриншот: на нём должна быть начальная позиция " +
+  "(свои фигуры снизу). Сделайте такой скриншот через F8, потом нажмите OK.");
+$("btn-copy").onclick = () => {
+  $("fen").select();
+  navigator.clipboard ? navigator.clipboard.writeText($("fen").value) : document.execCommand("copy");
+};
+
+function connect(delay = 500) {
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  let ping;
+  ws.onopen = () => { $("conn").classList.add("on"); delay = 500; ping = setInterval(() => ws.send("ping"), 20000); };
+  ws.onmessage = (e) => render(JSON.parse(e.data));
+  ws.onclose = () => {
+    $("conn").classList.remove("on");
+    clearInterval(ping);
+    setTimeout(() => connect(Math.min(delay * 2, 5000)), delay);
+  };
+}
+fetch("/api/state").then((r) => r.json()).then((s) => { if (!state) render(s); }).catch(() => {});
+connect();
+</script>
+</body>
+</html>

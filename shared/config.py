@@ -45,6 +45,13 @@ class ServerConfig:
     keep_inbox: int = 50  # how many received screenshots to keep on disk
     mdns: bool = True
     state_file: Path = Path("server_state.json")
+    open_browser: bool = True  # open the analysis page on start
+    engine_path: str = ""  # empty -> find stockfish on PATH / Homebrew locations
+    think_time_s: float = 1.0
+    depth: int = 0  # > 0: fixed depth instead of think time
+    multipv: int = 3
+    threads: int = 0  # 0: all cores but one
+    hash_mb: int = 256
 
 
 @dataclass(frozen=True)

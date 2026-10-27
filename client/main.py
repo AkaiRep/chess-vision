@@ -109,7 +109,19 @@ class ClientApp:
             log.error("send failed: %s", exc)
             self._beep(False)
             return False
-        log.info("sent OK: %s", result)
+        return self._report(result)
+
+    def _report(self, result: dict[str, Any]) -> bool:
+        """Log the server's verdict; beep "error" if the position could not be analysed."""
+        status = result.get("status")
+        if status == "ok":
+            log.info("best move %s (%s)  |  %s", result.get("best"), result.get("score"), result.get("fen"))
+        elif status == "game_over":
+            log.info("%s  |  %s", result.get("message"), result.get("fen"))
+        else:
+            log.warning("sent, but: %s %s", result.get("message") or status, result.get("fen", ""))
+            self._beep(False)
+            return False
         self._beep(True)
         return True
 

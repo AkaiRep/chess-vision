@@ -8,7 +8,7 @@ from pathlib import Path
 
 import uvicorn
 
-from server.app import create_app
+from server.app import create_app, make_engine
 from shared.config import load_config
 from shared.logging_setup import setup_logging
 from shared.net import local_ip
@@ -22,7 +22,7 @@ def main() -> int:
     setup_logging("server")
     log = logging.getLogger("server")
     cfg = load_config(args.config)
-    app = create_app(cfg.server)
+    app = create_app(cfg.server, engine=make_engine(cfg.server))
     log.info("listening on http://%s:%d", local_ip(), cfg.server.port)
     uvicorn.run(app, host=cfg.server.host, port=cfg.server.port, log_config=None)
     return 0

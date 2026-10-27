@@ -22,3 +22,10 @@ max_upload_mb = 25
 inbox_dir = "server/inbox"       # received screenshots are saved here for debugging
 keep_inbox = 50
 mdns = true                      # announce the server in the local network
+open_browser = true              # open the analysis page in the browser on start
+# engine_path = "/opt/homebrew/bin/stockfish"  # found automatically if empty
+think_time_s = 1.0               # Stockfish thinking time per position
+depth = 0                        # > 0: fixed search depth instead of think_time_s
+multipv = 3                      # number of best lines shown
+threads = 0                      # 0 = all CPU cores but one
+hash_mb = 256
