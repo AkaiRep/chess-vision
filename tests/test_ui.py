@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import chess
@@ -111,3 +112,50 @@ def test_full_pipeline_with_engine(tmp_path: Path) -> None:
     assert len(state["lines"]) == 3 and state["eval"]["white_share"] == 1.0
     assert "<svg" in state["svg"] and not state["warnings"]
 
+
+
+def test_websocket_push_on_real_uvicorn(tmp_path: Path) -> None:
+    """The TestClient does not need a WebSocket library, real uvicorn does: check the real thing."""
+    import asyncio
+    import socket
+    import threading
+    import time
+
+    import requests
+    import uvicorn
+    import websockets
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    cfg = ServerConfig(
+        port=port, inbox_dir=tmp_path / "inbox", state_file=tmp_path / "state.json", mdns=False, open_browser=False
+    )
+    server = uvicorn.Server(uvicorn.Config(create_app(cfg, tmp_path / "templates.npz"), port=port, log_config=None))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{port}"
+    for _ in range(100):
+        if server.started:
+            break
+        time.sleep(0.05)
+
+    async def scenario() -> dict:  # type: ignore[type-arg]
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
+            assert json.loads(await ws.recv())["status"] == "waiting"
+            token = requests.post(base + PAIR_PATH, json={}).json()["token"]
+            body = (SAMPLES / "full_screen_start.png").read_bytes()
+            await asyncio.to_thread(
+                requests.post,
+                base + ANALYZE_PATH,
+                data=body,
+                headers={TOKEN_HEADER: token, "Content-Type": "image/png"},
+            )
+            return json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
+
+    try:
+        pushed = asyncio.run(scenario())
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+    assert pushed["fen"].startswith("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")

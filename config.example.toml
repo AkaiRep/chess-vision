@@ -11,7 +11,7 @@ use_saved_region = true          # capture the remembered area instead of the wh
 image_format = "png"             # "png" (lossless, recommended) or "jpeg" (needs Pillow)
 jpeg_quality = 90
 timeout_s = 15
-sound = true                     # short beep on success / error
+sound = false                    # true: short beep on success / error
 
 [server]
 host = "0.0.0.0"

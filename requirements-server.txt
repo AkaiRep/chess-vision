@@ -1,5 +1,6 @@
 fastapi>=0.110
 uvicorn>=0.29
+websockets>=12        # WebSocket support in uvicorn (live page updates)
 opencv-python-headless>=4.9
 numpy>=1.26
 python-chess>=1.10

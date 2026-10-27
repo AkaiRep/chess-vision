@@ -182,18 +182,32 @@ $("btn-copy").onclick = () => {
   navigator.clipboard ? navigator.clipboard.writeText($("fen").value) : document.execCommand("copy");
 };
 
+// Live updates: WebSocket push; while it is down, poll /api/state once a second instead.
+let wsUp = false;
+
 function connect(delay = 500) {
   const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
   let ping;
-  ws.onopen = () => { $("conn").classList.add("on"); delay = 500; ping = setInterval(() => ws.send("ping"), 20000); };
+  ws.onopen = () => { wsUp = true; $("conn").classList.add("on"); delay = 500; ping = setInterval(() => ws.send("ping"), 20000); };
   ws.onmessage = (e) => render(JSON.parse(e.data));
   ws.onclose = () => {
+    wsUp = false;
     $("conn").classList.remove("on");
     clearInterval(ping);
     setTimeout(() => connect(Math.min(delay * 2, 5000)), delay);
   };
 }
-fetch("/api/state").then((r) => r.json()).then((s) => { if (!state) render(s); }).catch(() => {});
+
+async function poll() {
+  if (!wsUp) {
+    try {
+      const s = await (await fetch("/api/state", {cache: "no-store"})).json();
+      if (!state || s.seq !== state.seq) render(s);
+    } catch (e) { /* server restarting */ }
+  }
+  setTimeout(poll, 1000);
+}
+poll();
 connect();
 </script>
 </body>

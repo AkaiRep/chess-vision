@@ -30,7 +30,7 @@ class ClientConfig:
     image_format: str = "png"  # "png" or "jpeg"
     jpeg_quality: int = 90
     timeout_s: float = 15.0
-    sound: bool = True
+    sound: bool = False  # Windows beep on success / error
     state_file: Path = Path("client_state.json")
 
 
