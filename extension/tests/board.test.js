@@ -76,13 +76,28 @@ test("ambiguous highlights give no last move", () => {
 
 test("dragging, promotion dialog and two pieces on a square mean busy", () => {
   assert.equal(readBoard(boardEl([...startPieces(), el("piece wp dragging square-52")])).reason, "busy");
-  assert.equal(readBoard(boardEl([...startPieces(), el("promotion-window")])).reason, "busy");
+  const promo = el("promotion-window", "", { width: 80, height: 320 });
+  assert.equal(readBoard(boardEl([...startPieces(), promo])).reason, "busy");
+  // a hidden promotion window that stays in the DOM does not block reading
+  assert.equal(readBoard(boardEl([...startPieces(), el("promotion-window")])).ok, true);
   assert.equal(readBoard(boardEl([...startPieces(), piece("wq", "e2")])).reason, "busy");
 });
 
 test("ghost pieces and pieces without a square are skipped", () => {
   const extra = [piece("wq", "d5", "ghost"), el("piece wq")];
   assert.equal(readBoard(boardEl([...startPieces(), ...extra])).placement, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR");
+});
+
+test("pieces inside an open shadow root", () => {
+  const b = boardEl([]);
+  b.shadowRoot = boardEl(startPieces());
+  assert.equal(readBoard(b).placement, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR");
+});
+
+test("unknown piece classes are shown in the diagnosis", () => {
+  const r = readBoard(boardEl([el("piece white-king at-e1")]));
+  assert.equal(r.ok, false);
+  assert.match(r.detail, /white-king/);
 });
 
 test("board without both kings is not sent", () => {

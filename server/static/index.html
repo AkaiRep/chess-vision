@@ -180,9 +180,9 @@ async function post(path, confirmText, body) {
   try {
     const r = await fetch(path, body ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}
                                      : {method: "POST"});
-    const body = await r.json();
-    if (!r.ok) alert(body.detail || ("Ошибка " + r.status));
-    else render(body);
+    const data = await r.json();
+    if (!r.ok) alert(data.detail || ("Ошибка " + r.status));
+    else render(data);
   } catch (e) {
     alert("Сервер недоступен");
   } finally {

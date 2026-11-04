@@ -20,7 +20,7 @@ async function connect(server) {
   if (!(await isServer(server))) throw new Error(`на ${server} нет сервера chess-vision`);
   $("server").value = server;
   await pairAndSave(server);
-  await chrome.storage.local.set({ status: { ok: true, text: "Подключено, жду позицию с chess.com", time: Date.now() } });
+  await chrome.storage.local.set({ status: { ok: true, text: "Подключено. Если этот текст не меняется, обновите вкладку chess.com (F5)", time: Date.now() } });
   $("action").textContent = "Подключено. Позиции с открытых вкладок chess.com уйдут в течение нескольких секунд.";
 }
 

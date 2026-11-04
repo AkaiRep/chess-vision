@@ -47,5 +47,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     deliver(msg.position).then((delivered) => sendResponse({ delivered }));
     return true; // async response
   }
+  if (msg && msg.type === "diag") {
+    setStatus(Boolean(msg.ok), msg.text).then(() => sendResponse({}));
+    return true;
+  }
   return false;
 });

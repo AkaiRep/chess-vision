@@ -8,6 +8,7 @@
   const SETTLE_MS = 150; // read once the board has been quiet this long (animations)
   const SCAN_MS = 1000; // look for a (new) board: chess.com navigates without page reloads
   const RETRY_MS = 3000; // server unreachable / not paired / other source selected
+  const PROBLEM_MS = 2000; // report a problem only if it lasts this long (re-renders are transient)
 
   let board = null;
   let observer = null;
@@ -17,6 +18,34 @@
   let currentKey = "";
   let deliveredKey = "";
   let sending = false;
+  let lastReport = "";
+  let failingSince = 0;
+  let problemShown = false;
+
+  // Problems go to the popup status, but only from the visible tab and only when they change.
+  function report(text, ok = false) {
+    if (!alive() || document.visibilityState !== "visible" || text === lastReport) return;
+    lastReport = text;
+    chrome.runtime.sendMessage({ type: "diag", ok, text }).catch(() => {});
+  }
+
+  // A board that cannot be read / is not there: tell the popup only once it persists.
+  function problem(text) {
+    const now = Date.now();
+    if (!failingSince) failingSince = now;
+    if (now - failingSince < PROBLEM_MS) return;
+    problemShown = true;
+    report(text);
+  }
+
+  // The board reads fine again: clear a problem shown earlier, even if the position is unchanged.
+  function recovered(key) {
+    failingSince = 0;
+    if (!problemShown) return;
+    problemShown = false;
+    lastReport = "";
+    if (key === deliveredKey) report("Доска читается, позиция на сервере актуальна", true);
+  }
 
   function alive() {
     return Boolean(chrome.runtime && chrome.runtime.id); // false after the extension is reloaded
@@ -30,7 +59,9 @@
     observer = null;
     if (!board) return;
     observer = new MutationObserver(settle);
-    observer.observe(board, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+    const options = { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] };
+    observer.observe(board, options);
+    if (board.shadowRoot) observer.observe(board.shadowRoot, options);
     settle();
   }
 
@@ -44,7 +75,8 @@
     if (!board || !board.isConnected) return;
     const result = readBoard(board);
     if (!result.ok) {
-      if (result.reason === "busy") settle();
+      settle(); // look again shortly: usually a re-render or an animation
+      problem("Доска найдена, но не читается: " + result.detail);
       return;
     }
     current = {
@@ -54,6 +86,7 @@
       site: "chess.com",
     };
     currentKey = JSON.stringify(current);
+    recovered(currentKey);
     send();
   }
 
@@ -88,7 +121,9 @@
   scanTimer = setInterval(() => {
     if (!alive()) return stop();
     attach();
-    if (board && !settleTimer) settle(); // safety net in case a mutation was missed
+    if (!board) problem("Доска не найдена: " + describePage(document));
+    else if (!settleTimer) settle(); // safety net in case a mutation was missed
   }, SCAN_MS);
+  report("Вкладка chess.com подключена, ищу доску…", true);
   attach();
 })();
