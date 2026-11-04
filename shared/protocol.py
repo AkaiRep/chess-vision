@@ -5,6 +5,8 @@ from __future__ import annotations
 DEFAULT_PORT = 8765
 
 ANALYZE_PATH = "/analyze"
+# JSON board read from the chess.com page by the browser extension (see extension/).
+POSITION_PATH = "/analyze/position"
 HEALTH_PATH = "/health"
 PAIR_PATH = "/pair"
 

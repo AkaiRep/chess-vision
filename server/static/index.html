@@ -58,6 +58,10 @@
   #preview { width: 100%; border-radius: 6px; display: block; }
   .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
   .hidden { display: none !important; }
+  .modes { display: flex; gap: 6px; }
+  .modes button { flex: 1; }
+  .modes button.active { background: var(--accent-dark); }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -70,10 +74,18 @@
   <section>
     <div class="board-wrap">
       <div id="evalbar"><div id="evalfill"></div><div id="evaltext"></div></div>
-      <div id="board">Нажмите F8 на Windows,<br>чтобы отправить скриншот</div>
+      <div id="board">Откройте доску на chess.com<br>или нажмите F8 на Windows</div>
     </div>
   </section>
   <aside>
+    <div class="card">
+      <div class="label">Источник доски</div>
+      <div class="modes">
+        <button id="mode-page" data-mode="page">Расширение chess.com</button>
+        <button id="mode-screenshot" data-mode="screenshot">Скриншот (F8)</button>
+      </div>
+      <div class="hint" id="modehint"></div>
+    </div>
     <div class="card">
       <div id="score">—</div>
       <div id="best"></div>
@@ -128,7 +140,8 @@ function renderEval(s) {
 
 function render(s) {
   state = s;
-  $("updated").textContent = s.time ? "обновлено " + s.time : "";
+  const from = s.source === "page" ? " · с доски " + (s.site || "chess.com") : (s.time ? " · скриншот" : "");
+  $("updated").textContent = s.time ? "обновлено " + s.time + from : "";
   $("board").innerHTML = s.svg || esc(s.message || "");
   const ok = s.status === "ok";
   $("score").textContent = ok && s.eval ? s.eval.text : (s.status === "game_over" ? "Конец" : "—");
@@ -152,15 +165,21 @@ function render(s) {
   if (s.preview) $("preview").src = s.preview;
   const hasPos = !!s.fen;
   $("btn-flip").disabled = $("btn-turn").disabled = !hasPos;
+  $("btn-calib").classList.toggle("hidden", s.source === "page");
+  for (const b of document.querySelectorAll(".modes button")) b.classList.toggle("active", b.dataset.mode === s.mode);
+  $("modehint").textContent = s.mode === "page"
+    ? "Позиция приходит сама с открытой вкладки chess.com; F8 игнорируется."
+    : "Анализ по F8 на Windows; позиции от расширения игнорируются.";
   renderEval(s);
 }
 
-async function post(path, confirmText) {
+async function post(path, confirmText, body) {
   if (confirmText && !confirm(confirmText)) return;
   const buttons = document.querySelectorAll("button");
   buttons.forEach((b) => (b.disabled = true));
   try {
-    const r = await fetch(path, {method: "POST"});
+    const r = await fetch(path, body ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}
+                                     : {method: "POST"});
     const body = await r.json();
     if (!r.ok) alert(body.detail || ("Ошибка " + r.status));
     else render(body);
@@ -173,6 +192,7 @@ async function post(path, confirmText) {
 }
 
 $("btn-flip").onclick = () => post("/api/flip");
+for (const b of document.querySelectorAll(".modes button")) b.onclick = () => post("/api/mode", null, {mode: b.dataset.mode});
 $("btn-turn").onclick = () => post("/api/turn");
 $("btn-calib").onclick = () => post("/api/recalibrate",
   "Перекалибровка берёт ПОСЛЕДНИЙ скриншот: на нём должна быть начальная позиция " +

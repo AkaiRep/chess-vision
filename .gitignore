@@ -5,6 +5,7 @@ __pycache__/
 config.toml
 client_state.json
 server_state.json
+server_settings.json
 logs/
 server/inbox/
 data/templates/

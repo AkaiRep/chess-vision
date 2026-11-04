@@ -1,9 +1,11 @@
 """FastAPI application.
 
 - POST /analyze   screenshot from the paired Windows client -> analysis
+- POST /analyze/position   board read from chess.com by the paired browser extension
 - GET  /          analysis page (live updates over WebSocket /ws)
 - POST /api/...   UI buttons: flip board, switch side to move, recalibrate
-The page and its buttons are available from the local network only.
+Which of the two inputs is used is chosen on the page (POST /api/mode); the other one is
+answered with status "ignored". The page and its buttons are available from the local network only.
 """
 
 from __future__ import annotations
@@ -16,18 +18,20 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import chess
 import cv2
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from server.calibration import TEMPLATES_PATH, CalibrationError
 from server.engine import Engine, EngineSettings, find_stockfish
 from server.inbox import Inbox
 from server.pairing import Pairing
-from server.pipeline import Analysis, Analyzer
+from server.pipeline import Analysis, Analyzer, PageBoard
+from server.source_mode import PAGE, SCREENSHOT, SourceMode
 from shared.config import ServerConfig
 from shared.net import is_lan_address
 from shared.protocol import (
@@ -35,6 +39,7 @@ from shared.protocol import (
     ANALYZE_PATH,
     HEALTH_PATH,
     PAIR_PATH,
+    POSITION_PATH,
     SERVICE_ID,
     TOKEN_HEADER,
 )
@@ -46,6 +51,29 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 class PairRequest(BaseModel):
     name: str = "?"
+
+
+class ModeRequest(BaseModel):
+    mode: str
+
+
+class PagePosition(BaseModel):
+    """Board as the browser extension reads it from the chess.com page."""
+
+    placement: str = Field(max_length=100)  # FEN piece placement, white's view ("rnbqkbnr/...")
+    flipped: bool = False  # black at the bottom
+    highlighted: list[str] = Field(default_factory=list, max_length=64)  # last-move squares, "e2"
+    site: str = Field(default="chess.com", max_length=40)
+
+
+def page_board(body: PagePosition) -> PageBoard:
+    """Validate the extension's JSON or raise HTTP 400."""
+    try:
+        chess.Board(None).set_board_fen(body.placement)
+        squares = [chess.parse_square(name) for name in body.highlighted]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"bad position: {exc}") from exc
+    return PageBoard(body.placement, body.flipped, squares, body.site)
 
 
 def decode_image(data: bytes) -> np.ndarray:
@@ -94,6 +122,7 @@ def create_app(cfg: ServerConfig, templates_path: Path = TEMPLATES_PATH, engine:
     inbox = Inbox(cfg.inbox_dir, cfg.keep_inbox)
     pairing = Pairing(cfg.state_file, cfg.token, cfg.pairing_window_s)
     analyzer = Analyzer(engine, templates_path)
+    mode = SourceMode(cfg.state_file.with_name("server_settings.json"))
     hub = Hub()
 
     @asynccontextmanager
@@ -132,8 +161,11 @@ def create_app(cfg: ServerConfig, templates_path: Path = TEMPLATES_PATH, engine:
         if not is_lan_address(_peer(request)):
             raise HTTPException(status_code=403, detail="local network only")
 
+    def state_json(analysis: Analysis) -> dict[str, Any]:
+        return {**analysis.to_json(), "mode": mode.value}
+
     async def publish(analysis: Analysis) -> dict[str, Any]:
-        state = analysis.to_json()
+        state = state_json(analysis)
         await hub.broadcast(state)
         return state
 
@@ -158,6 +190,9 @@ def create_app(cfg: ServerConfig, templates_path: Path = TEMPLATES_PATH, engine:
 
     @app.post(ANALYZE_PATH, dependencies=[Depends(require_token)])
     async def analyze(request: Request) -> dict[str, Any]:
+        if mode.value != SCREENSHOT:
+            log.info("screenshot from %s ignored: source is the extension", _peer(request))
+            return mode.ignored()
         content_type = request.headers.get("content-type", "").split(";")[0].strip()
         if content_type not in ACCEPTED_IMAGE_TYPES:
             raise HTTPException(status_code=415, detail=f"expected one of {ACCEPTED_IMAGE_TYPES}")
@@ -178,6 +213,18 @@ def create_app(cfg: ServerConfig, templates_path: Path = TEMPLATES_PATH, engine:
         await publish(analysis)
         return analysis.summary()
 
+    @app.post(POSITION_PATH, dependencies=[Depends(require_token)])
+    async def analyze_position(body: PagePosition, request: Request) -> dict[str, Any]:
+        page = page_board(body)
+        if mode.value != PAGE:
+            return mode.ignored()
+        log.info("board from %s (%s): %s%s", body.site, _peer(request), body.placement, " flipped" if body.flipped else "")
+        analysis = await run_in_threadpool(analyzer.analyze_page, page)
+        if analysis is None:  # a newer position arrived while this one waited for the engine
+            return {"status": "skipped", "message": "superseded by a newer position"}
+        await publish(analysis)
+        return analysis.summary()
+
     # --- web UI ------------------------------------------------------------
     @app.get("/", dependencies=[Depends(require_lan)])
     def index() -> FileResponse:
@@ -185,7 +232,15 @@ def create_app(cfg: ServerConfig, templates_path: Path = TEMPLATES_PATH, engine:
 
     @app.get("/api/state", dependencies=[Depends(require_lan)])
     def state() -> dict[str, Any]:
-        return analyzer.latest.to_json()
+        return state_json(analyzer.latest)
+
+    @app.post("/api/mode", dependencies=[Depends(require_lan)])
+    async def set_mode(body: ModeRequest) -> dict[str, Any]:
+        try:
+            mode.set(body.mode)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return await publish(analyzer.latest)
 
     @app.post("/api/flip", dependencies=[Depends(require_lan)])
     async def flip() -> dict[str, Any]:
@@ -211,7 +266,7 @@ def create_app(cfg: ServerConfig, templates_path: Path = TEMPLATES_PATH, engine:
         await ws.accept()
         await hub.add(ws)
         try:
-            await ws.send_json(analyzer.latest.to_json())
+            await ws.send_json(state_json(analyzer.latest))
             while True:
                 await ws.receive_text()  # keep-alive pings from the page
         except WebSocketDisconnect:

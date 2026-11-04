@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "chess-vision",
+  "version": "1.0.0",
+  "description": "Читает доску chess.com и отправляет позицию на сервер chess-vision в локальной сети.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://*/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.chess.com/*", "https://chess.com/*"],
+      "js": ["board.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_popup": "popup.html", "default_title": "chess-vision" }
+}

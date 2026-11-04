@@ -1,7 +1,8 @@
 """Screenshot -> board -> pieces -> position -> Stockfish, plus the UI overrides.
 
-The Analyzer keeps the last screenshot and its recognition, so the UI buttons (flip,
-switch side to move, recalibrate) re-evaluate without a new screenshot.
+Two sources: a screenshot from the Windows client, or the board read straight out of the
+chess.com page by the browser extension (no recognition needed). The Analyzer keeps the last
+input, so the UI buttons (flip, switch side to move, recalibrate) re-evaluate without a new one.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import numpy as np
 from server.board_locator import BoardLocator, LocatedBoard
 from server.calibration import TEMPLATES_PATH, CalibrationError, calibrate, load_or_calibrate
 from server.engine import Engine, Line
-from server.position import Position, build_position, color_name
+from server.position import Position, build_position, color_name, position_from_page
 from server.recognizer import Recognition, Recognizer
 from server.render import board_svg, preview_data_url
 
@@ -34,6 +35,8 @@ class Analysis:
     preview: str = ""
     seq: int = 0
     created: float = field(default_factory=time.time)
+    source: str = "screenshot"  # or "page" (browser extension)
+    site: str = ""
 
     def summary(self) -> dict[str, Any]:
         """Short answer for the Windows client."""
@@ -53,6 +56,8 @@ class Analysis:
             "status": self.status,
             "message": self.message,
             "preview": self.preview,
+            "source": self.source,
+            "site": self.site,
             "time": time.strftime("%H:%M:%S", time.localtime(self.created)),
         }
         if pos is None:
@@ -76,6 +81,16 @@ class Analysis:
         return data
 
 
+@dataclass(frozen=True)
+class PageBoard:
+    """Board as the browser extension read it from the page."""
+
+    placement: str  # FEN piece placement
+    flipped: bool  # black at the bottom
+    highlighted: list[int]  # last-move squares (python-chess square numbers)
+    site: str = "chess.com"
+
+
 class Analyzer:
     def __init__(self, engine: Engine | None, templates_path: Path = TEMPLATES_PATH) -> None:
         self.engine = engine
@@ -88,15 +103,19 @@ class Analyzer:
         self._board: LocatedBoard | None = None
         self._recognition: Recognition | None = None
         self._flipped_by_labels: bool | None = None
+        self._page: PageBoard | None = None
+        self._page_requests = 0
+        self._page_requests_lock = threading.Lock()
         self.flip = False
         self.switch_turn = False
         self._seq = 0
-        self.latest = Analysis("waiting", "Нажмите F8 на Windows, чтобы отправить скриншот")
+        self.latest = Analysis("waiting", "Откройте доску на chess.com или нажмите F8 на Windows")
 
     # --- entry points (thread-safe) --------------------------------------
     def analyze_image(self, img: np.ndarray) -> Analysis:
         with self._lock:
             self._img = img
+            self._page = None
             self.flip = self.switch_turn = False  # overrides apply to one screenshot only
             self._board = self.locator.locate(img)
             if self._board is None:
@@ -106,6 +125,18 @@ class Analyzer:
                 )
             self._recognition = self.recognizer.recognize(self._board)
             self._flipped_by_labels = self.recognizer.flipped_by_labels(self._board)
+            return self._evaluate()
+
+    def analyze_page(self, page: PageBoard) -> Analysis | None:
+        """Position from the browser extension. None = a newer position arrived meanwhile (skip it)."""
+        with self._page_requests_lock:
+            self._page_requests += 1
+            ticket = self._page_requests
+        with self._lock:
+            if ticket != self._page_requests:
+                return None
+            self._page = page
+            self.flip = self.switch_turn = False
             return self._evaluate()
 
     def toggle_flip(self) -> Analysis:
@@ -121,7 +152,7 @@ class Analyzer:
     def recalibrate(self) -> Analysis:
         """Use the last screenshot (must show the starting position) as the new reference."""
         with self._lock:
-            if self._img is None:
+            if self._img is None or self._page is not None:
                 raise CalibrationError("сначала отправьте скриншот начальной позиции (F8)")
             templates = calibrate(self._img)
             templates.save(self.templates_path)
@@ -138,10 +169,21 @@ class Analyzer:
         return analysis
 
     def _evaluate(self) -> Analysis:
-        if self._img is None or self._board is None or self._recognition is None:
+        result = self._evaluate_position()
+        if self._page is not None:
+            result.source, result.site = "page", self._page.site
+        return result
+
+    def _evaluate_position(self) -> Analysis:
+        if self._page is not None:
+            page = self._page
+            pos = position_from_page(page.placement, page.flipped, page.highlighted, self.flip, self.switch_turn)
+            preview = ""
+        elif self._img is not None and self._board is not None and self._recognition is not None:
+            pos = build_position(self._recognition, self._flipped_by_labels, self.flip, self.switch_turn)
+            preview = preview_data_url(self._img, self._board.rect)
+        else:
             return self.latest
-        pos = build_position(self._recognition, self._flipped_by_labels, self.flip, self.switch_turn)
-        preview = preview_data_url(self._img, self._board.rect)
         log.info("position %s (%s)%s", pos.fen, pos.orientation_source, "" if pos.valid else f" INVALID: {pos.errors}")
 
         if not pos.valid:

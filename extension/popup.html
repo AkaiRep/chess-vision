@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>chess-vision</title>
+<style>
+  :root { --bg: #262421; --panel: #312e2b; --panel-2: #3c3934; --text: #f0ede8; --muted: #a8a49c;
+          --accent: #81b64c; --accent-dark: #5d8a35; --err: #ff7b6e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; width: 320px; background: var(--bg); color: var(--text);
+         font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--panel); }
+  header h1 { margin: 0; font-size: 15px; }
+  #dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  #dot.ok { background: var(--accent); }
+  #dot.err { background: var(--err); }
+  main { padding: 12px 14px 14px; }
+  label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  input { width: 100%; font: 13px ui-monospace, Consolas, monospace; color: var(--text); background: var(--panel);
+          border: 1px solid var(--panel-2); border-radius: 6px; padding: 7px 9px; }
+  .row { display: flex; gap: 8px; margin-top: 8px; }
+  button { flex: 1; font: inherit; font-weight: 600; color: var(--text); background: var(--panel-2); border: 0;
+           border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+  button.primary { background: var(--accent-dark); }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { margin-top: 12px; padding: 9px 11px; border-radius: 6px; background: var(--panel); font-size: 13px; }
+  #time { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  #action { margin-top: 8px; font-size: 13px; color: var(--muted); min-height: 1em; }
+</style>
+</head>
+<body>
+<header><span id="dot"></span><h1>chess-vision</h1></header>
+<main>
+  <label for="server">Сервер (мак)</label>
+  <input id="server" placeholder="192.168.1.5:8765" spellcheck="false">
+  <div class="row">
+    <button id="connect" class="primary">Подключить</button>
+    <button id="discover">Найти сервер</button>
+  </div>
+  <div id="action"></div>
+  <div id="status">
+    <div id="text">Откройте партию на chess.com</div>
+    <div id="time"></div>
+  </div>
+</main>
+<script src="net.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>

@@ -75,7 +75,7 @@ class Position:
     board: chess.Board
     flipped: bool  # True = black at the bottom
     my_color: chess.Color
-    orientation_source: str  # "labels", "pieces" or "manual"
+    orientation_source: str  # "labels", "pieces", "page" or "manual"
     valid: bool
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -87,15 +87,10 @@ class Position:
         return self.board.fen(en_passant="legal")
 
 
-def _last_move(
-    recognition: Recognition, board: chess.Board, flipped: bool
+def last_move_from_marked(
+    marked: list[chess.Square], board: chess.Board
 ) -> tuple[chess.Square, chess.Square] | None:
-    marked = [
-        screen_to_square(r, c, flipped)
-        for r, row in enumerate(recognition.cells)
-        for c, cell in enumerate(row)
-        if cell.shade is SquareShade.OTHER
-    ]
+    """Two highlighted squares, exactly one of them occupied -> (from, to)."""
     if len(marked) != 2:
         return None
     occupied = [sq for sq in marked if board.piece_at(sq)]
@@ -125,7 +120,7 @@ def build_position(
     flip: bool = False,
     switch_turn: bool = False,
 ) -> Position:
-    """flip / switch_turn are the manual overrides from the UI buttons."""
+    """From a screenshot recognition. flip / switch_turn are the manual overrides from the UI buttons."""
     labels = recognition.labels()
     if flipped_by_labels is not None:
         flipped, source = flipped_by_labels, "labels"
@@ -133,14 +128,63 @@ def build_position(
         flipped, source = flipped_by_pieces(labels), "pieces"
     if flip:
         flipped, source = not flipped, "manual"
-    my_color = chess.BLACK if flipped else chess.WHITE
 
     board = chess.Board(None)
     for r, row in enumerate(labels):
         for c, label in enumerate(row):
             if label != EMPTY:
                 board.set_piece_at(screen_to_square(r, c, flipped), chess.Piece.from_symbol(label))
-    board.turn = my_color if not switch_turn else not my_color
+    marked = [
+        screen_to_square(r, c, flipped)
+        for r, row in enumerate(recognition.cells)
+        for c, cell in enumerate(row)
+        if cell.shade is SquareShade.OTHER
+    ]
+    suspicious = [screen_to_square(r, c, flipped) for r, c in recognition.suspicious()]
+    return complete_position(board, flipped, source, marked, suspicious, switch_turn, turn_from_last_move=False)
+
+
+def position_from_page(
+    placement: str,
+    flipped: bool,
+    highlighted: list[chess.Square],
+    flip: bool = False,
+    switch_turn: bool = False,
+) -> Position:
+    """From the board read out of the chess.com page by the browser extension.
+
+    The page gives exact squares and orientation, so the side to move comes from the last move
+    (the opponent of whoever moved), the starting position means white, otherwise "mine".
+    """
+    board = chess.Board(None)
+    board.set_board_fen(placement)  # ValueError on garbage; the endpoint validates first
+    source = "page"
+    if flip:
+        flipped, source = not flipped, "manual"
+    return complete_position(board, flipped, source, highlighted, [], switch_turn, turn_from_last_move=True)
+
+
+def complete_position(
+    board: chess.Board,
+    flipped: bool,
+    source: str,
+    marked: list[chess.Square],
+    suspicious: list[chess.Square],
+    switch_turn: bool,
+    turn_from_last_move: bool,
+) -> Position:
+    """Pieces are placed; add side to move, castling, en passant, warnings and validation."""
+    my_color = chess.BLACK if flipped else chess.WHITE
+    last_move = last_move_from_marked(marked, board)
+    mover = board.piece_at(last_move[1]) if last_move else None
+
+    turn = my_color
+    if turn_from_last_move:
+        if mover is not None:
+            turn = not mover.color
+        elif board.board_fen() == chess.STARTING_BOARD_FEN:
+            turn = chess.WHITE
+    board.turn = not turn if switch_turn else turn
 
     rights = chess.BB_EMPTY
     for king_sq, rook_sq, color, _ in CASTLING:
@@ -151,10 +195,7 @@ def build_position(
     board.castling_rights = rights
 
     warnings: list[str] = []
-    last_move = _last_move(recognition, board, flipped)
-    if last_move:
-        mover = board.piece_at(last_move[1])
-        assert mover is not None
+    if last_move and mover is not None:
         if mover.color == board.turn:
             warnings.append(
                 f"Последний ход сделали {color_name(mover.color)}, а ход сейчас у них же — "
@@ -167,7 +208,6 @@ def build_position(
                 if not board.has_legal_en_passant():
                     board.ep_square = None
 
-    suspicious = [screen_to_square(r, c, flipped) for r, c in recognition.suspicious()]
     if suspicious:
         names = ", ".join(chess.square_name(sq) for sq in suspicious)
         warnings.append(f"Не уверен в клетках: {names}")
